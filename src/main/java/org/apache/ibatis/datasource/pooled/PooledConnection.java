@@ -15,13 +15,13 @@
  */
 package org.apache.ibatis.datasource.pooled;
 
+import org.apache.ibatis.reflection.ExceptionUtil;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.SQLException;
-
-import org.apache.ibatis.reflection.ExceptionUtil;
 
 /**
  * @author Clinton Begin
@@ -248,26 +248,42 @@ class PooledConnection implements InvocationHandler {
    * @return 方法的返回值
    * @throws Throwable
    */
+
+  /**
+   * 调用代理上的方法。
+   *
+   * 此方法用于处理对代理对象的方法调用。它首先检查是否调用了特定的关闭方法，
+   * 如果是，则将连接返回给连接池，而不是真正关闭它。对于其他方法调用，
+   * 它会先验证连接是否有效，然后委托给实际的连接对象执行方法。
+   *
+   * @param proxy 代理对象，用于持有真实连接的对象。
+   * @param method 被调用的方法。
+   * @param args 方法调用的参数。
+   * @return 方法的返回值，如果调用的是关闭方法，则返回null。
+   * @throws Throwable 如果方法执行过程中抛出异常，则抛出。
+   */
   @Override
   public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-    // 获取方法名
-    String methodName = method.getName();
-    if (CLOSE.hashCode() == methodName.hashCode() && CLOSE.equals(methodName)) { // 如果调用了关闭方法
-      // 那么把Connection返回给连接池，而不是真正的关闭
-      dataSource.pushConnection(this);
-      return null;
-    }
-    try {
-      // 校验连接是否可用
-      if (!Object.class.equals(method.getDeclaringClass())) {
-        checkConnection();
+      // 获取方法名
+      String methodName = method.getName();
+      // 检查是否调用了关闭连接的方法
+      if (CLOSE.hashCode() == methodName.hashCode() && CLOSE.equals(methodName)) { // 如果调用了关闭方法
+        // 将连接返回给连接池
+        dataSource.pushConnection(this);
+        return null;
       }
-      // 用真正的连接去执行操作
-      return method.invoke(realConnection, args);
-    } catch (Throwable t) {
-      throw ExceptionUtil.unwrapThrowable(t);
+      try {
+        // 如果方法不是Object类的方法，则检查连接是否有效
+        // 即调用自定义方法之前，校验连接是否可用
+        if (!Object.class.equals(method.getDeclaringClass())) {
+          checkConnection();
+        }
+        // 委托给真实连接对象执行方法
+        return method.invoke(realConnection, args);
+      } catch (Throwable t) {
+        throw ExceptionUtil.unwrapThrowable(t);
+      }
     }
-  }
 
   private void checkConnection() throws SQLException {
     if (!valid) {

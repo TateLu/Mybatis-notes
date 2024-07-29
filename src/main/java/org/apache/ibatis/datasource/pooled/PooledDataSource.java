@@ -15,6 +15,11 @@
  */
 package org.apache.ibatis.datasource.pooled;
 
+import org.apache.ibatis.datasource.unpooled.UnpooledDataSource;
+import org.apache.ibatis.logging.Log;
+import org.apache.ibatis.logging.LogFactory;
+
+import javax.sql.DataSource;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
@@ -25,12 +30,6 @@ import java.sql.Statement;
 import java.util.Properties;
 import java.util.logging.Logger;
 
-import javax.sql.DataSource;
-
-import org.apache.ibatis.datasource.unpooled.UnpooledDataSource;
-import org.apache.ibatis.logging.Log;
-import org.apache.ibatis.logging.LogFactory;
-
 /**
  * This is a simple, synchronous, thread-safe database connection pool.
  *
@@ -40,6 +39,11 @@ public class PooledDataSource implements DataSource {
 
   private static final Log log = LogFactory.getLog(PooledDataSource.class);
 
+  /**
+   * 初始化一个私有的、最终的PoolState实例，用于管理连接池的状态。
+   * 这里的连接池可以是线程安全的，因为PoolState的实例是最终的，确保了其不可变性，
+   * 同时通过私有访问权限限制了对外部的直接访问，只能通过类内部的方法来操作和获取连接池状态。
+   */
   private final PoolState state = new PoolState(this);
 
   // 持有一个UnpooledDataSource对象
@@ -380,11 +384,17 @@ public class PooledDataSource implements DataSource {
   }
 
   /**
-   * 收回一个连接
-   * @param conn 连接
-   * @throws SQLException
+   * 将连接返回到连接池中。
+   *
+   * 此方法用于将一个已经使用过的连接重新放回连接池，以便它可以被其他请求再次使用。
+   * 在连接被返回到池中之前，会进行一些必要的检查和处理，以确保连接处于可用状态。
+   *
+   * @param conn 要返回到池中的连接对象。这个对象是一个封装了实际数据库连接的池化连接。
+   * @throws SQLException 如果在返回连接的过程中遇到了任何问题，比如连接已经关闭或者无效，则抛出此异常。
    */
+  //书签 连接池 放回连接
   protected void pushConnection(PooledConnection conn) throws SQLException {
+
     synchronized (state) {
       // 将该连接从活跃连接中删除
       state.activeConnections.remove(conn);
@@ -408,7 +418,8 @@ public class PooledDataSource implements DataSource {
             log.debug("Returned connection " + newConn.getRealHashCode() + " to pool.");
           }
           state.notifyAll();
-        } else { // 连接池已满或者该连接不属于该连接池
+        } else {
+          // 连接池已满或者该连接不属于该连接池
           state.accumulatedCheckoutTime += conn.getCheckoutTime();
           if (!conn.getRealConnection().getAutoCommit()) {
             conn.getRealConnection().rollback();
@@ -436,6 +447,7 @@ public class PooledDataSource implements DataSource {
    * @return 池化的数据库连接
    * @throws SQLException
    */
+  //书签 连接池 获取连接
   private PooledConnection popConnection(String username, String password) throws SQLException {
     boolean countedWait = false;
     PooledConnection conn = null;
